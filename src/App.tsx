@@ -243,7 +243,7 @@ export default function App() {
         if (!sf.facility || !sf.type) continue;
         const buf = await sf.file.arrayBuffer();
 
-        if (sf.type === "Nutrition") {
+        if (sf.type === "Nutrition" || sf.type === "Health Education") {
           const nutData = await extractNutritionAll(buf);
           if (sf.facility === "Lerpiny & Tangnyang" || !sf.facility) {
             Object.keys(nutData).forEach((fac) => {
@@ -267,7 +267,7 @@ export default function App() {
           const fac = sf.facility;
           newExtracted[fac] = newExtracted[fac] || {};
 
-          if (sf.type === "OPD") {
+          if (sf.type === "OPD" || sf.type === "Health Data") {
             newExtracted[fac].opd = await extractOPD(buf);
           } else if (sf.type === "ANC") {
             newExtracted[fac].anc = await extractANC(buf);
@@ -831,15 +831,17 @@ export default function App() {
                         sf.type === t &&
                         extractedData[fac] &&
                         ((t === "OPD" && extractedData[fac].opd) ||
+                          (t === "Health Data" && extractedData[fac].opd) ||
                           (t === "ANC" && extractedData[fac].anc) ||
                           (t === "EPI" && extractedData[fac].epi) ||
                           (t === "Lab" && extractedData[fac].lab) ||
-                          (t === "Nutrition" && extractedData[fac].nutrition))
+                          (t === "Nutrition" && extractedData[fac].nutrition) ||
+                          (t === "Health Education" && extractedData[fac].nutrition))
                     ) || (
-                      t === "Nutrition" && 
+                      (t === "Nutrition" || t === "Health Education") && 
                       stagedFiles.some(
                         (sf) => 
-                          sf.type === "Nutrition" && 
+                          (sf.type === "Nutrition" || sf.type === "Health Education") && 
                           extractedData[fac]?.nutrition
                       )
                     );
@@ -1211,19 +1213,20 @@ export default function App() {
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart
                     data={getLowestPerformingData()}
-                    margin={{ top: 10, right: 30, left: 20, bottom: 20 }}
+                    layout="vertical"
+                    margin={{ top: 10, right: 30, left: 10, bottom: 5 }}
                   >
                     <CartesianGrid strokeDasharray="3 3" stroke="#D6D0C0" opacity={0.3} />
-                    <XAxis dataKey="name" stroke="#4E5A5C" fontSize={10} tickLine={false} />
-                    <YAxis stroke="#4E5A5C" fontSize={10} unit="%" />
+                    <XAxis type="number" domain={[0, 100]} stroke="#4E5A5C" fontSize={10} unit="%" />
+                    <YAxis dataKey="name" type="category" stroke="#4E5A5C" fontSize={10} width={130} />
                     {/* Tooltips formatted to reflect only the metric values specifically */}
                     <Tooltip
                       formatter={(value: any) => [`${value}%`, ""]}
                       contentStyle={{ background: "#17262B", border: "none", borderRadius: "8px", color: "#FFF" }}
                       itemStyle={{ color: "#FFF", fontSize: "11px", fontFamily: "monospace" }}
-                      labelStyle={{ fontSize: "11px", fontWeight: "bold", color: "#EFEEE6" }}
+                      labelStyle={{ fontSize: "11px", fontWeight: "bold", color: "#EFEEE6", marginBottom: "4px" }}
                     />
-                    <Bar dataKey="progress" fill="#A8471F" radius={[4, 4, 0, 0]} barSize={24} />
+                    <Bar dataKey="progress" fill="#A8471F" radius={[0, 4, 4, 0]} barSize={16} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>

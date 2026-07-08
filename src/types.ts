@@ -8,7 +8,7 @@ export type FacilityName =
   | "Manajang"
   | "Tangnyang";
 
-export type ReportType = "OPD" | "ANC" | "EPI" | "Lab" | "MUAC" | "Nutrition";
+export type ReportType = "OPD" | "ANC" | "EPI" | "Lab" | "MUAC" | "Nutrition" | "Health Education" | "Health Data";
 
 export type BreakdownKey = "men" | "women" | "boys" | "girls" | "total";
 

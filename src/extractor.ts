@@ -19,7 +19,9 @@ export const REPORT_TYPES: Record<ReportType, string[]> = {
   "Lab": ["lab", "laboratory", "analysis", "tests", "test"],
   "MUAC": ["muac"],
   "OPD": ["opd"],
-  "Nutrition": ["nutrition", "nis", "cluster report"]
+  "Nutrition": ["nutrition", "nis", "cluster report"],
+  "Health Education": ["health education", "health edu", "promotion"],
+  "Health Data": ["health data", "health"]
 };
 
 export function num(v: any): number {
@@ -112,7 +114,31 @@ export async function extractOPD(buf: ArrayBuffer): Promise<OPDData> {
   if (!skbaHit) skbaHit = findRow(aoa, "skilled birth");
   if (!skbaHit) skbaHit = findRow(aoa, "skba");
   if (!skbaHit) skbaHit = findRow(aoa, "facility skilled birth attended");
-  const skba = skbaHit ? num(skbaHit.row[skbaHit.c + 1]) : 0;
+  
+  let skba = skbaHit ? num(skbaHit.row[skbaHit.c + 1]) : 0;
+
+  if (skba === 0) {
+    try {
+      const wb = XLSX.read(buf, { type: "array" });
+      for (const sheetName of wb.SheetNames) {
+        const sheetAoa = sheetToAOA(wb.Sheets[sheetName]);
+        let hit = findRow(sheetAoa, "deliveries by skilled attendant");
+        if (!hit) hit = findRow(sheetAoa, "skilled attendant");
+        if (!hit) hit = findRow(sheetAoa, "skilled birth");
+        if (!hit) hit = findRow(sheetAoa, "skba");
+        if (!hit) hit = findRow(sheetAoa, "facility skilled birth attended");
+        if (hit) {
+          const val = num(hit.row[hit.c + 1]);
+          if (val > 0) {
+            skba = val;
+            break;
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("Error scanning all sheets for skba in extractOPD", e);
+    }
+  }
   
   return { newAtt, reAtt, malaria, diarrhoea, cmr, training, skba };
 }
@@ -160,41 +186,37 @@ export function getEpiRowRange(aoa: any[][]) {
   return { start: start0_11, end: start1_2 };
 }
 
-export function epiFindRow(aoa: any[][], label: string, start: number, end: number): number {
+export function epiFindRow(aoa: any[][], label: string, start: number, end: number): { r: number; c: number } | null {
   const n = label.toLowerCase().trim();
   for (let r = start; r < Math.min(end, aoa.length); r++) {
     if (!aoa[r]) continue;
-    const cell = String(aoa[r][0] || "").toLowerCase().trim();
-    if (cell === n || cell.includes(n)) return r;
-    
-    // Add robust aliases for Pentavalent-3
-    if (n.includes("pentavalent-3") || n.includes("penta3")) {
-      if (
-        cell.includes("pentavalent-3") ||
-        cell.includes("penta3") ||
-        cell.includes("penta 3") ||
-        cell.includes("penta-3") ||
-        cell.includes("pentavalent 3") ||
-        cell.includes("pentavalent dose 3") ||
-        cell.includes("penta dose 3")
-      ) {
-        return r;
+    for (let c = 0; c < aoa[r].length; c++) {
+      const cellVal = String(aoa[r][c] || "").toLowerCase().trim();
+      if (!cellVal) continue;
+      
+      let isMatch = false;
+      if (cellVal === n || cellVal.includes(n)) {
+        isMatch = true;
+      } else if (n.includes("pentavalent-3") || n.includes("penta")) {
+        const isPenta = cellVal.includes("penta") || cellVal.includes("pentavalent") || cellVal.includes("dpt") || cellVal.includes("hepb") || cellVal.includes("hib");
+        const isDose3 = cellVal.includes("3") || cellVal.includes("iii") || cellVal.includes("three") || cellVal.includes("dose3") || cellVal.includes("dose 3") || cellVal.endsWith("3");
+        if (isPenta && isDose3) {
+          isMatch = true;
+        }
+      } else if (n.includes("measles") || n.includes("mcv")) {
+        const isMeasles = cellVal.includes("measle") || cellVal.includes("measles") || cellVal.includes("mcv") || cellVal.includes("mr 1") || cellVal.includes("mr-1") || cellVal.includes("mr1") || cellVal.startsWith("mr ") || cellVal === "mr";
+        const isNotDose2 = !cellVal.includes("2") && !cellVal.includes("dose 2") && !cellVal.includes("dose2") && !cellVal.includes("ii");
+        if (isMeasles && isNotDose2) {
+          isMatch = true;
+        }
       }
-    }
-    
-    // Add robust aliases for Measles
-    if (n.includes("measles")) {
-      if (
-        cell.includes("measles") ||
-        cell.includes("measle") ||
-        cell.includes("mcv") ||
-        cell.includes("measles containing vaccine")
-      ) {
-        return r;
+      
+      if (isMatch) {
+        return { r, c };
       }
     }
   }
-  return -1;
+  return null;
 }
 
 export function epiHasGenderRow(aoa: any[][], start: number, end: number): boolean {
@@ -207,29 +229,62 @@ export function epiHasGenderRow(aoa: any[][], start: number, end: number): boole
 }
 
 export function epiRowVals(aoa: any[][], label: string, start: number, end: number) {
-  const r = epiFindRow(aoa, label, start, end);
-  if (r < 0) return { boys: 0, girls: 0, total: 0 };
+  let hit = epiFindRow(aoa, label, start, end);
+  if (!hit) {
+    // Fallback to searching the entire sheet
+    hit = epiFindRow(aoa, label, 0, aoa.length);
+  }
+  if (!hit) return { boys: 0, girls: 0, total: 0 };
+  
+  const { r, c } = hit;
   const row = aoa[r];
-  const hasGender = epiHasGenderRow(aoa, start, end);
+  
+  // Dynamically find where the actual numbers start.
+  let startCol = c + 1;
+  while (startCol < row.length && (row[startCol] === "" || row[startCol] === null || row[startCol] === undefined || isNaN(parseFloat(String(row[startCol]).replace(/,/g, ""))))) {
+    startCol++;
+  }
+  if (startCol >= row.length) {
+    startCol = c + 1;
+  }
+
+  const hasGender = epiHasGenderRow(aoa, start, end) || epiHasGenderRow(aoa, 0, aoa.length);
   
   let boys = 0;
   let girls = 0;
   let total = 0;
   
   if (hasGender) {
-    // LAYOUT B: Col 1=Static Male, Col 2=Static Female, Col 3=Out Reach Male, Col 4=Out Reach Female, Col 5=Total
-    const staticMale = num(row[1]);
-    const staticFemale = num(row[2]);
-    const outreachMale = num(row[3]);
-    const outreachFemale = num(row[4]);
-    total = num(row[5]);
+    // LAYOUT B: Col startCol=Static Male, startCol+1=Static Female, startCol+2=Out Reach Male, startCol+3=Out Reach Female, startCol+4=Total
+    const staticMale = startCol < row.length ? num(row[startCol]) : 0;
+    const staticFemale = startCol + 1 < row.length ? num(row[startCol + 1]) : 0;
+    const outreachMale = startCol + 2 < row.length ? num(row[startCol + 2]) : 0;
+    const outreachFemale = startCol + 3 < row.length ? num(row[startCol + 3]) : 0;
+    total = startCol + 4 < row.length ? num(row[startCol + 4]) : 0;
     boys = staticMale + outreachMale;
     girls = staticFemale + outreachFemale;
   } else {
-    // LAYOUT A: Col 1=Static, Col 2=Out Reach, Col 3=Total
-    boys = num(row[1]);       // Static
-    girls = num(row[2]);      // Out Reach
-    total = num(row[3]);      // Total from sheet
+    // LAYOUT A: Col startCol=Static, startCol+1=Out Reach, startCol+2=Total
+    boys = startCol < row.length ? num(row[startCol]) : 0;       // Static
+    girls = startCol + 1 < row.length ? num(row[startCol + 1]) : 0;      // Out Reach
+    total = startCol + 2 < row.length ? num(row[startCol + 2]) : 0;      // Total from sheet
+  }
+  
+  // Absolute column fallback just in case startCol relative scan fails
+  if (boys === 0 && girls === 0 && total === 0) {
+    if (hasGender) {
+      const staticMale = num(row[1]);
+      const staticFemale = num(row[2]);
+      const outreachMale = num(row[3]);
+      const outreachFemale = num(row[4]);
+      total = num(row[5]);
+      boys = staticMale + outreachMale;
+      girls = staticFemale + outreachFemale;
+    } else {
+      boys = num(row[1]);
+      girls = num(row[2]);
+      total = num(row[3]);
+    }
   }
   
   if (total === 0) total = boys + girls;
@@ -240,7 +295,7 @@ export function epiRowVals(aoa: any[][], label: string, start: number, end: numb
 }
 
 export async function extractEPI(buf: ArrayBuffer, facility?: string): Promise<EPIData> {
-  const aoa = await parseXLSX(buf, /(routine\s*epi|epi\s*reporting|epi)/i);
+  const aoa = await parseXLSX(buf, /(routine\s*epi|epi\s*reporting|epi|health\s*data|health|immunization|routine\s*immunization)/i);
   const range = getEpiRowRange(aoa);
   
   const penta3 = epiRowVals(aoa, "Pentavalent-3", range.start, range.end);
