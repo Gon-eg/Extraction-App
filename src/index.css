@@ -1,0 +1,38 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;600&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Inter", "Space Grotesk", sans-serif;
+  --font-mono: "IBM Plex Mono", monospace;
+
+  --color-paper: #F8FAFC;
+  --color-panel: #FFFFFF;
+  --color-ink: #0F172A;
+  --color-ink-soft: #475569;
+  --color-rule: #E2E8F0;
+  --color-teal: #2563EB;
+  --color-teal-dark: #1E40AF;
+  --color-teal-tint: #EFF6FF;
+  --color-amber: #EA580C;
+  --color-amber-tint: #FFF7ED;
+  --color-good: #16A34A;
+  --color-good-tint: #F0FDF4;
+}
+
+/* Custom CSS scrollbars and layout support styles */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #E2E8F0;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #2563EB;
+}
+

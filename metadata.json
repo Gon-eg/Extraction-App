@@ -1,0 +1,6 @@
+{
+  "name": "Bath Research & Analytics System",
+  "description": "An advanced analytics dashboard and multi-source reporting data extractor for facility-level health and nutrition indicators.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
