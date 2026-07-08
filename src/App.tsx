@@ -269,10 +269,40 @@ export default function App() {
 
           if (sf.type === "OPD" || sf.type === "Health Data") {
             newExtracted[fac].opd = await extractOPD(buf);
+            try {
+              const epiData = await extractEPI(buf, fac);
+              if (epiData && (epiData.penta3.total > 0 || epiData.measles.total > 0)) {
+                newExtracted[fac].epi = epiData;
+              }
+            } catch (e) { /* ignore */ }
+            try {
+              const ancData = await extractANC(buf);
+              if (ancData && ancData.skilled > 0) {
+                newExtracted[fac].anc = ancData;
+              }
+            } catch (e) { /* ignore */ }
           } else if (sf.type === "ANC") {
             newExtracted[fac].anc = await extractANC(buf);
+            try {
+              const opdData = await extractOPD(buf);
+              if (opdData && (opdData.newAtt.total > 0 || opdData.reAtt.total > 0)) {
+                newExtracted[fac].opd = opdData;
+              }
+            } catch (e) { /* ignore */ }
           } else if (sf.type === "EPI") {
             newExtracted[fac].epi = await extractEPI(buf, fac);
+            try {
+              const opdData = await extractOPD(buf);
+              if (opdData && (opdData.newAtt.total > 0 || opdData.reAtt.total > 0)) {
+                newExtracted[fac].opd = opdData;
+              }
+            } catch (e) { /* ignore */ }
+            try {
+              const ancData = await extractANC(buf);
+              if (ancData && ancData.skilled > 0) {
+                newExtracted[fac].anc = ancData;
+              }
+            } catch (e) { /* ignore */ }
           } else if (sf.type === "Lab") {
             newExtracted[fac].lab = await extractLab(buf);
           }

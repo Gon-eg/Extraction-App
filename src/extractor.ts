@@ -96,6 +96,47 @@ export function opdRowVals(aoa: any[][], label: string) {
   };
 }
 
+export function extractOPDSKBA(aoa: any[][]): number {
+  let hit = findRow(aoa, "deliveries by skilled attendant");
+  if (!hit) hit = findRow(aoa, "skilled attendant");
+  if (!hit) hit = findRow(aoa, "skilled birth");
+  if (!hit) hit = findRow(aoa, "skba");
+  if (!hit) hit = findRow(aoa, "facility skilled birth attended");
+  
+  if (!hit) return 0;
+  
+  const row = hit.row;
+  const c = hit.c;
+  
+  // Under the "for this facility extract only female section, leave male section" mandate:
+  // Usually, in an OPD table, columns are:
+  // Label (c), Boys (c+1), Girls (c+2), ... Men (c+5), Women (c+6)
+  // Or:
+  // Label (c), Male (c+1), Female (c+2)
+  // So the female columns are:
+  // Girls (c+2) and Women (c+6) (or c+2 if it's just Male/Female)
+  const valC1 = num(row[c + 1]);
+  const valC2 = c + 2 < row.length ? num(row[c + 2]) : 0;
+  const valC6 = c + 6 < row.length ? num(row[c + 6]) : 0;
+  
+  const femaleSum = valC2 + valC6;
+  if (femaleSum > 0) {
+    return femaleSum;
+  }
+  
+  if (valC2 > 0) {
+    return valC2;
+  }
+  
+  const absGirls = row.length > 2 ? num(row[2]) : 0;
+  const absWomen = row.length > 6 ? num(row[6]) : 0;
+  if (absGirls + absWomen > 0) {
+    return absGirls + absWomen;
+  }
+  
+  return valC1;
+}
+
 export async function extractOPD(buf: ArrayBuffer): Promise<OPDData> {
   const aoa = await parseXLSX(buf, /(new hfs|health data|health|opd)/i);
   const newAtt = opdRowVals(aoa, "MoH F1A New attendance");
@@ -109,30 +150,17 @@ export async function extractOPD(buf: ArrayBuffer): Promise<OPDData> {
   const trainHit = findRow(aoa, "Emergency Preparedness and Response");
   const training = trainHit ? { men: num(trainHit.row[7]), women: num(trainHit.row[8]) } : { men: 0, women: 0 };
   
-  let skbaHit = findRow(aoa, "deliveries by skilled attendant");
-  if (!skbaHit) skbaHit = findRow(aoa, "skilled attendant");
-  if (!skbaHit) skbaHit = findRow(aoa, "skilled birth");
-  if (!skbaHit) skbaHit = findRow(aoa, "skba");
-  if (!skbaHit) skbaHit = findRow(aoa, "facility skilled birth attended");
-  
-  let skba = skbaHit ? num(skbaHit.row[skbaHit.c + 1]) : 0;
+  let skba = extractOPDSKBA(aoa);
 
   if (skba === 0) {
     try {
       const wb = XLSX.read(buf, { type: "array" });
       for (const sheetName of wb.SheetNames) {
         const sheetAoa = sheetToAOA(wb.Sheets[sheetName]);
-        let hit = findRow(sheetAoa, "deliveries by skilled attendant");
-        if (!hit) hit = findRow(sheetAoa, "skilled attendant");
-        if (!hit) hit = findRow(sheetAoa, "skilled birth");
-        if (!hit) hit = findRow(sheetAoa, "skba");
-        if (!hit) hit = findRow(sheetAoa, "facility skilled birth attended");
-        if (hit) {
-          const val = num(hit.row[hit.c + 1]);
-          if (val > 0) {
-            skba = val;
-            break;
-          }
+        const val = extractOPDSKBA(sheetAoa);
+        if (val > 0) {
+          skba = val;
+          break;
         }
       }
     } catch (e) {
@@ -244,6 +272,29 @@ export function epiRowVals(aoa: any[][], label: string, start: number, end: numb
   while (startCol < row.length && (row[startCol] === "" || row[startCol] === null || row[startCol] === undefined || isNaN(parseFloat(String(row[startCol]).replace(/,/g, ""))))) {
     startCol++;
   }
+  
+  // Find a header row to check if the column we found is a target/tgt column.
+  let headerRow: any[] | null = null;
+  for (let prevR = Math.max(0, r - 10); prevR < r; prevR++) {
+    if (!aoa[prevR]) continue;
+    const rStr = aoa[prevR].map(cell => String(cell || "").toLowerCase()).join(" ");
+    if (rStr.includes("target") || rStr.includes("static") || rStr.includes("outreach") || rStr.includes("male") || rStr.includes("female") || rStr.includes("boys") || rStr.includes("girls")) {
+      headerRow = aoa[prevR];
+      break;
+    }
+  }
+
+  if (headerRow && startCol < headerRow.length) {
+    const colHeader = String(headerRow[startCol] || "").toLowerCase().trim();
+    if (colHeader.includes("target") || colHeader.includes("tgt")) {
+      // It's the target column! Skip it.
+      startCol++;
+      while (startCol < row.length && (row[startCol] === "" || row[startCol] === null || row[startCol] === undefined || isNaN(parseFloat(String(row[startCol]).replace(/,/g, ""))))) {
+        startCol++;
+      }
+    }
+  }
+
   if (startCol >= row.length) {
     startCol = c + 1;
   }
@@ -295,11 +346,30 @@ export function epiRowVals(aoa: any[][], label: string, start: number, end: numb
 }
 
 export async function extractEPI(buf: ArrayBuffer, facility?: string): Promise<EPIData> {
-  const aoa = await parseXLSX(buf, /(routine\s*epi|epi\s*reporting|epi|health\s*data|health|immunization|routine\s*immunization)/i);
-  const range = getEpiRowRange(aoa);
+  let aoa = await parseXLSX(buf, /(routine\s*epi|epi\s*reporting|epi|health\s*data|health|immunization|routine\s*immunization)/i);
+  let range = getEpiRowRange(aoa);
   
-  const penta3 = epiRowVals(aoa, "Pentavalent-3", range.start, range.end);
-  const measles = epiRowVals(aoa, "Measles", range.start, range.end);
+  let penta3 = epiRowVals(aoa, "Pentavalent-3", range.start, range.end);
+  let measles = epiRowVals(aoa, "Measles", range.start, range.end);
+
+  if (penta3.total === 0 && measles.total === 0) {
+    try {
+      const wb = XLSX.read(buf, { type: "array" });
+      for (const sheetName of wb.SheetNames) {
+        const sheetAoa = sheetToAOA(wb.Sheets[sheetName]);
+        const r = getEpiRowRange(sheetAoa);
+        const p3 = epiRowVals(sheetAoa, "Pentavalent-3", r.start, r.end);
+        const m = epiRowVals(sheetAoa, "Measles", r.start, r.end);
+        if (p3.total > 0 || m.total > 0) {
+          penta3 = p3;
+          measles = m;
+          break;
+        }
+      }
+    } catch (e) {
+      console.warn("Error scanning all sheets in extractEPI", e);
+    }
+  }
   
   // Specific instruction: handle gender breakdown for Keew EPI where it's not present but has same form
   if (facility && facility.toLowerCase() === "keew") {
