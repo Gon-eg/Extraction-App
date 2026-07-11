@@ -1,6 +1,6 @@
 import * as XLSX from "xlsx";
 import mammoth from "mammoth";
-import { FacilityName, ReportType, OPDData, ANCData, EPIData, LabData, NutritionData } from "./types";
+import { FacilityName, ReportType, OPDData, ANCData, EPIData, LabData, NutritionData, IndicatorValue } from "./types";
 
 export const FACILITIES: Record<FacilityName, string[]> = {
   "Keew": ["keew", "kew"],
@@ -96,45 +96,41 @@ export function opdRowVals(aoa: any[][], label: string) {
   };
 }
 
-export function extractOPDSKBA(aoa: any[][]): number {
+export function extractOPDSKBA(aoa: any[][]): IndicatorValue {
   let hit = findRow(aoa, "deliveries by skilled attendant");
   if (!hit) hit = findRow(aoa, "skilled attendant");
   if (!hit) hit = findRow(aoa, "skilled birth");
   if (!hit) hit = findRow(aoa, "skba");
   if (!hit) hit = findRow(aoa, "facility skilled birth attended");
   
-  if (!hit) return 0;
-  
-  const row = hit.row;
-  const c = hit.c;
-  
-  // Under the "for this facility extract only female section, leave male section" mandate:
-  // Usually, in an OPD table, columns are:
-  // Label (c), Boys (c+1), Girls (c+2), ... Men (c+5), Women (c+6)
-  // Or:
-  // Label (c), Male (c+1), Female (c+2)
-  // So the female columns are:
-  // Girls (c+2) and Women (c+6) (or c+2 if it's just Male/Female)
-  const valC1 = num(row[c + 1]);
-  const valC2 = c + 2 < row.length ? num(row[c + 2]) : 0;
-  const valC6 = c + 6 < row.length ? num(row[c + 6]) : 0;
-  
-  const femaleSum = valC2 + valC6;
-  if (femaleSum > 0) {
-    return femaleSum;
+  let row: any[] | null = hit ? hit.row : null;
+  if (!row) {
+    // Fallback: If no label is found, check row 51 (0-indexed index 50)
+    if (aoa && aoa[50] && aoa[50].length > 1) {
+      row = aoa[50];
+    } else if (aoa && aoa[51] && aoa[51].length > 1) {
+      row = aoa[51];
+    }
   }
   
-  if (valC2 > 0) {
-    return valC2;
+  if (!row) {
+    return { boys: 0, girls: 0, men: 0, women: 0, total: 0 };
   }
   
-  const absGirls = row.length > 2 ? num(row[2]) : 0;
-  const absWomen = row.length > 6 ? num(row[6]) : 0;
-  if (absGirls + absWomen > 0) {
-    return absGirls + absWomen;
-  }
+  // According to the rest of the extraction logic (like opdRowVals):
+  // Column 1: Boys, Column 2: Girls, Column 5: Men, Column 6: Women
+  const boys = num(row[1]);
+  const girls = num(row[2]);
+  const men = num(row[5]);
+  const women = num(row[6]);
   
-  return valC1;
+  return {
+    boys,
+    girls,
+    men,
+    women,
+    total: boys + girls + men + women
+  };
 }
 
 export async function extractOPD(buf: ArrayBuffer): Promise<OPDData> {
@@ -152,13 +148,13 @@ export async function extractOPD(buf: ArrayBuffer): Promise<OPDData> {
   
   let skba = extractOPDSKBA(aoa);
 
-  if (skba === 0) {
+  if (skba.total === 0) {
     try {
       const wb = XLSX.read(buf, { type: "array" });
       for (const sheetName of wb.SheetNames) {
         const sheetAoa = sheetToAOA(wb.Sheets[sheetName]);
         const val = extractOPDSKBA(sheetAoa);
-        if (val > 0) {
+        if (val.total > 0) {
           skba = val;
           break;
         }

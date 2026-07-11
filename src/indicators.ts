@@ -94,10 +94,21 @@ export const INDICATORS: Indicator[] = [
     code: "1.2.3b",
     output: "Output 1.2 — Health Service Delivery",
     desc: "Facility skilled birth attended (OPD)",
-    target: { total: 180, women: 0 },
-    bd: ["women"],
+    target: { total: 180, women: 180 },
+    bd: ["men", "women", "boys", "girls"],
     source: "auto",
-    extract: (d) => sumFac(d, (f) => ({ women: f.opd?.skba || 0 })),
+    extract: (d) =>
+      sumFac(d, (f) => {
+        const sk = f.opd?.skba;
+        if (!sk) return { men: 0, women: 0, boys: 0, girls: 0, total: 0 };
+        return {
+          boys: sk.boys || 0,
+          girls: sk.girls || 0,
+          men: sk.men || 0,
+          women: sk.women || 0,
+          total: sk.total || 0,
+        };
+      }),
   },
   {
     code: "1.2.4",

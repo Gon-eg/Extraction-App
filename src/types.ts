@@ -54,7 +54,7 @@ export interface OPDData {
   diarrhoea: IndicatorValue;
   cmr: { girls: number; women: number };
   training: { men: number; women: number };
-  skba: number;
+  skba: IndicatorValue;
 }
 
 export interface ANCData {
